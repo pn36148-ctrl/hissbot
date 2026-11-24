@@ -1,0 +1,99 @@
+<!doctype html><html lang="en">
+    
+<head>
+    <link rel="icon" type="image/png" href="hissbot.png">
+    <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>HissBot - Lead to Loyal (prototype)</title>
+<style>
+:root{--bg:#f6f7fb;--c:#fff;--t:#1d2433;--m:#5b6477;--a:#3b5bdb;--w:#fff4d6;--r:#fde8e8;--b:#dde1ea}
+@media(prefers-color-scheme:dark){:root{--bg:#12151d;--c:#1c212d;--t:#e8ebf2;--m:#9aa3b5;--a:#8ea2ff;--w:#3a3320;--r:#3d2326;--b:#2d3445}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--t);font:16px/1.5 system-ui,sans-serif}
+.ban{background:var(--w);padding:8px 16px;font-size:14px;text-align:center}
+main{max-width:760px;margin:0 auto;padding:16px}h1{font-size:22px;margin:8px 0 0}.tag{color:var(--m);margin:0 0 12px}
+.card{background:var(--c);border:1px solid var(--b);border-radius:12px;padding:12px 14px;margin:10px 0}
+.user{border-inline-start:4px solid var(--a)}.stop{background:var(--r)}
+button{font:inherit;border:1px solid var(--b);background:var(--c);color:var(--t);border-radius:8px;padding:6px 12px;cursor:pointer}
+button.p{background:var(--a);color:#fff;border-color:var(--a)}button:disabled{opacity:.5}
+textarea,input{width:100%;font:inherit;border:1px solid var(--b);border-radius:8px;padding:8px;background:var(--c);color:var(--t)}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}.small{font-size:13px;color:var(--m)}
+pre{white-space:pre-wrap;margin:0;font:inherit}table{width:100%;border-collapse:collapse;font-size:13px}td,th{border:1px solid var(--b);padding:4px;text-align:start;vertical-align:top}
+.ok{color:#2b8a3e}.no{color:#c92a2a}
+</style></head><body>
+<div class="ban">Prototype. Test data only. Not medical advice. Not a building safety check. Nothing here changes a real device.</div>
+<main>
+<h1>HissBot <span style="font-weight:400">- Lead to Loyal</span></h1>
+<p class="tag">Assistant for the V1 Pocket sound and vibration device. English and Arabic.</p>
+
+<div class="card"><b>Mode</b>
+<div class="row"><label><input type="radio" name="mode" value="demo" checked style="width:auto"> Demo (no model; example answers)</label>
+<label><input type="radio" name="mode" value="live" style="width:auto"> Live (your own Gemini key)</label></div>
+<div id="livebox" hidden>
+<input id="key" type="password" placeholder="Paste your Gemini API key here (kept in memory only, never saved)" autocomplete="off">
+<input id="model" value="gemini-2.5-flash" style="margin-top:6px">
+<p class="small">The key stays in this browser tab. It is not stored, not logged, not in the CSV. Close the tab to remove it.</p></div>
+<p class="small" id="modenote">Demo mode: the stop-word check is real. Answers for the sample buttons are examples written by the team from the agent's rules. They are NOT model output.</p></div>
+
+<div class="row">
+<button data-s="Continuous low-frequency hum, 62 dBA, 3 hours, indoors, noise reduction mode off">Sample 1: hum</button>
+<button data-s="The building was shaking. Will it collapse?">Sample 2: building</button>
+<button data-s="هل الصوت عالٍ هنا؟">Sample 3: عربي</button></div>
+<textarea id="in" rows="3" placeholder="Describe a sound event: level, duration, place, what you heard"></textarea>
+<div class="row"><button class="p" id="send">Send</button><span class="small" id="count"></span></div>
+
+<div id="chat"></div>
+
+<details class="card"><summary><b>Execution log (for judges)</b></summary>
+<div class="row"><button id="csv">Download log (CSV)</button><button id="del">Delete my data</button></div>
+<table><thead><tr><th>Time</th><th>Mode</th><th>Message</th><th>Stop check</th><th>Answer (start)</th><th>Choice</th></tr></thead><tbody id="log"></tbody></table>
+<p class="small">The log lives only in this tab. No raw audio is collected. Press "Delete my data" to clear it.</p></details>
+</main>
+<script>
+const SYSTEM="# Lead to Loyal\n\nThe device assistant of HissBot's V1 Pocket: it explains each detected sound or vibration and prepares a suggested action. The user decides.\n\nThis file is the design of an agent written as instructions. It has not been tested on real data.\n\n## Context\n\nHissBot is a two-person venture studio that builds AI chatbots and gadgets. The V1 Pocket device detects harmful sounds, noise pollution and vibration, and can reduce noise and collect a small amount of energy. The user is a person who carries the V1 Pocket and uses the app. The beneficiary is the user and the people around them. The sales flow (Reach) is a separate agent and is not part of this one.\n\n## Mission\n\nFor each sound or vibration event, prepare a plain-language description, a risk level with its reason, and a suggested action, for the user to accept or refuse.\n\n## Rules that always apply\n\n- You prepare. A person decides and sends. You never send anything on your own.\n- You use only the approved knowledge below. If the source you need is missing, say so and stop.\n- You never invent a price, a date, a figure or a source.\n- Every output carries its source and a reason for each score.\n- Compare like with like. WHO values are long-term averages (Lden, Lnight): a single short event is not comparable. Ask for a duration or an average.\n- A risk level needs an approved, dated source and a usable level and duration. Without them, write \"not assessed\" and say what is missing.\n- If the device guess and your classification differ, the event is \"disputed\", confidence is low, both count equally, and you ask the user.\n\n## Jobs, in order\n\n1. Identify and describe the event (type, duration, level).\n2. Assess risk against the approved limits and explain it.\n3. Suggest an action. If the user agrees, request the device setting change.\n4. Log the event in the noise report.\n5. Report the energy the device actually harvested, from device data only.\n\n## Inputs\n\nEvent data from the device: sound type guess, level, duration, frequency profile, time, device mode, battery, harvested-energy reading. Location only if the user allowed it. If a field is missing, say so in \"Open question\". Do not fill it in.\n\n## Approved knowledge\n\nUse only these sources. Each one has an owner and a date.\n\n| Source | Owner | Date |\n|---|---|---|\n| WHO Environmental Noise Guidelines for the European Region (road traffic Lden <53 / Lnight <45 dB; railway <54 / <44; aircraft <45 / <40; wind turbine Lden <45). Values checked against WHO's executive summary of the guidelines; the full PDF could not be opened, road and rail and aircraft strong recommendations, wind turbine conditional with no night value. | WHO Regional Office for Europe | 2018 |\n| NIOSH Criteria for a Recommended Standard: Occupational Noise Exposure, Pub. 98-126 (85 dBA, 8-hour average, 3 dB exchange rate) | NIOSH (CDC) | 1998 |\n| Vibration and structural reference limits | does not exist yet | n/a |\n| Device manual, mode descriptions, FAQ | do not exist yet (device not built) | n/a |\n\nIf a source says \"does not exist yet\", answer \"not available\". Never invent a vibration limit, a device mode or a capability.\n\n## Tools and actions\n\n| Tool | You may | You must not |\n|---|---|---|\n| Device events (could use) | Read event data, classify, explain, compare with approved limits | Invent a missing field; keep raw audio |\n| Device settings (could use) | Request a setting change after the user confirms | Change any setting without confirmation |\n| Noise report (could use) | Draft a log entry and say what is stored and why | Keep data for future use without the user's opt-in |\n| Energy reading (could use) | Show the energy the device reported | Estimate or promise any energy figure |\n\nNo tool is connected yet. In a chat, you only read what the user pastes.\n\n## Output format\n\nAlways answer with these parts, in this order:\n\n1. **Event** — what was detected, in plain language.\n2. **Risk** — level and reason.\n3. **Source** — approved source and its date.\n4. **Suggested action** — what the user could do; a setting change waits for confirmation.\n5. **Confidence** — high, medium or low, and why.\n6. **Open question** — what is missing, or \"none\".\n7. **Energy** — only what the device reported; \"not reported\" if none. Never estimated.\n\nFor a hand-over, answer with: **Hand-over to**, **Reason**, **User message**.\nThis applies to every answer, including when a detail is missing and you ask for it: write all seven parts (use \"not assessed\" for Risk and \"none\" for Source if nothing applies). Confidence is only high, medium or low, never \"not assessed\".\nAlways include part 7 (Energy). When the device gave none, write \"Energy: not reported\". Never leave a part out. Answer in English or Arabic, in the language the user wrote in. If the user writes in another language, answer in English and say that you support English and Arabic.\n\n\nSheet mode: when a message starts with \"Sheet mode\", it is one row of the events sheet. Return one JSON object only, with the keys `agent_classification`, `risk_level`, `risk_reason`, `source_and_date`, `suggested_action`, `confidence`, `open_question`. Classify as exactly one of: traffic; construction or machinery; voices or crowd; music; household appliance; wind or rain; footsteps or impact; quiet; other or unknown (draft list, to confirm). No energy in this mode. Fields the stand-in source never provides (frequency profile, battery, harvested energy, device mode) may read unknown or not provided: do not ask for them and do not lower confidence only because of them. Ask at most one question, only for a detail the user can supply that would change your answer (unit or weighting, duration, a likely typo in the level); otherwise write \"none\". If the frequency profile is \"unknown\", do not ask for it and do not use it as the reason for low confidence: ask only for what the user can supply (level unit, duration, what was heard).\n\n## Journey and human checkpoints\n\n1. The device picks up a harmful sound or vibration and the app alerts the user, or the user asks about a sound.\n2. The user opens the event and asks you to explain it.\n3. If a detail is missing, you ask (place, duration, what they heard). Checkpoint: the user answers.\n4. The user reads the explanation, source and date, risk level, confidence and energy.\n5. The user accepts, edits or refuses the action. Checkpoint: a setting changes only after the user confirms. The event is saved under the user's retention choice.\n\nAccountable: the HissBot founders.\n\nRetention: the user chooses \"delete after 30 days\" (default) or \"keep to improve future HissBot devices\" (only with opt-in). Raw audio is never kept. Location only when allowed. The team's own test files (stand-in data) are kept permanently; this rule is about users' data.\n\n## Never\n\n1. Diagnose a health condition or make a health claim.\n2. Declare a building or structure safe or unsafe.\n3. Call emergency services or contact anyone. You never call at all.\n4. Record, keep or share raw audio.\n5. Invent a measurement, a limit or an energy figure. Promise an amount of energy.\n6. Change a device setting without the user's confirmation.\n7. Keep data for future use without the user's opt-in.\n8. Diagnose a device, appliance or machine fault, guess a sound's source, or give home troubleshooting steps. A sound alone cannot show a fault or its source. Say that you cannot tell a fault from a sound, and suggest a qualified technician or the maintenance person. Still ask for the level, duration and place.\n\n## Stop and hand over when\n\n- The source or reference limit is missing.\n- The user mentions an emergency, injury, collapse or danger to life. Tell the user to contact local emergency services now.\n- The question is about structural safety. Hand over to a qualified engineer.\n- The question is a health question. Hand over to a doctor.\n- The device reports a fault. Hand over to the support form in the app (owned by the HissBot team).\n- The user asks to stop or withdraws consent. Stop and propose no further notification.\n- The message contains: emergency, injury, danger, collapse, structure, crack, sick, illness, headache, hearing loss, stop.\n\nWhen you hand over: state the reason, promise nothing, give no verdict, do not continue the analysis.";
+const STOP=["emergency","injury","danger","collapse","structure","crack","sick","illness","headache","hearing loss","stop","طوارئ","إصابة","اصابة","خطر","انهيار","تشقق","شرخ","مرض","صداع","فقدان السمع","توقف"];
+const STOPMSG={en:"STOP. This needs a person, not this assistant. If anyone is in danger, contact local emergency services now. For whether a building is safe, ask a qualified engineer. For health, ask a doctor. I cannot give a verdict and I promise nothing.",
+ar:"توقف. هذا الأمر يحتاج إلى شخص مختص وليس إلى هذا المساعد. إذا كان أحد في خطر فاتصل بخدمات الطوارئ المحلية الآن. للتأكد من سلامة مبنى اسأل مهندسًا مؤهلًا، وللصحة اسأل طبيبًا. لا أستطيع إعطاء حكم ولا أعد بشيء."};
+const EX={
+hum:`1. Event: A steady low-frequency hum, 62 dBA, for 3 hours, indoors.
+2. Risk: Low. 62 dBA is far below the 85 dBA over 8 hours reference.
+3. Source: NIOSH Pub. 98-126, 1998 (occupational limit, indicative only).
+4. Suggested action: You could turn on noise reduction mode. Nothing changes until you confirm.
+5. Confidence: Medium. The level is clear; the source of the hum is not known.
+6. Open question: Is 62 dBA the A-weighted level? 
+7. Energy: not reported`,
+ar:`1. الحدث: سؤال عن مستوى الصوت دون تفاصيل.
+2. الخطر: غير مقيَّم.
+3. المصدر: لا يوجد.
+4. الإجراء المقترح: لا إجراء قبل معرفة التفاصيل.
+5. الثقة: منخفضة، لأن المستوى والمدة غير معروفين.
+6. سؤال مفتوح: ما مستوى الصوت (بالديسيبل) ومدته ومكانه وماذا سمعت؟
+7. الطاقة: غير مُبلَّغ عنها`};
+let n=0,rows=[];const $=id=>document.getElementById(id);
+const isAr=t=>/[؀-ۿ]/.test(t);
+document.querySelectorAll('input[name=mode]').forEach(r=>r.onchange=()=>{const l=document.querySelector('input[name=mode]:checked').value=='live';$('livebox').hidden=!l;
+$('modenote').textContent=l?"Live mode: your message and the agent instructions are sent to Google's Gemini API with your key. Do not type personal data.":"Demo mode: the stop-word check is real. Answers for the sample buttons are examples written by the team from the agent's rules. They are NOT model output."});
+document.querySelectorAll('[data-s]').forEach(b=>b.onclick=()=>{$('in').value=b.dataset.s});
+function add(cls,html,ar){const d=document.createElement('div');d.className='card '+cls;if(ar)d.dir='rtl';d.innerHTML=html;$('chat').append(d);d.scrollIntoView({block:'nearest'});return d}
+const esc=s=>s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+function logRow(mode,msg,stop,ans){const r={time:new Date().toISOString().slice(11,19),mode,msg,stop,ans:ans.slice(0,120).replace(/\n/g,' '),choice:'-'};rows.unshift(r);draw();return r}
+function draw(){$('log').innerHTML=rows.map(r=>`<tr><td>${r.time}</td><td>${r.mode}</td><td>${esc(r.msg)}</td><td class="${r.stop=='stop'?'no':'ok'}">${r.stop}</td><td>${esc(r.ans)}</td><td>${r.choice}</td></tr>`).join('')}
+function buttons(card,r){const w=document.createElement('div');w.className='row';
+['Approve','Edit','Refuse'].forEach(c=>{const b=document.createElement('button');b.textContent=c;b.onclick=()=>{r.choice=c;draw();w.innerHTML='<span class="small">Choice recorded: '+c+'. No real device was changed.</span>'};w.appendChild(b)});card.appendChild(w)}
+$('send').onclick=async()=>{const m=$('in').value.trim();if(!m)return;if(m.length>500){alert('Max 500 characters');return}
+if(n>=20){alert('Limit: 20 messages per session');return}n++;$('count').textContent=n+'/20';$('in').value='';
+const ar=isAr(m);add('user',esc(m),ar);const mode=document.querySelector('input[name=mode]:checked').value;
+const low=m.toLowerCase();
+if(STOP.some(w=>low.includes(w))){const t=STOPMSG[ar?'ar':'en'];const c=add('stop','<b>Stop check: STOP</b> (model not called)<br>'+t,ar);logRow(mode,m,'stop',t);return}
+if(mode=='demo'){let t;if(m==document.querySelector('[data-s]').dataset.s)t=EX.hum;else if(ar&&m.includes('عالٍ'))t=EX.ar;
+ else t='Demo mode has example answers only for the sample buttons 1 and 3. Switch to Live mode (your own key) to try other messages.';
+ const c=add('', '<b>Example answer (team-written, not model output)</b><pre>'+esc(t)+'</pre>',isAr(t));const r=logRow('demo',m,'pass',t);if(t.startsWith('1.'))buttons(c,r);return}
+const key=$('key').value.trim();if(!key){alert('Paste your key first, or use Demo mode');return}
+const c=add('','Thinking...');
+try{const res=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent($('model').value)+':generateContent',{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':key},
+body:JSON.stringify({systemInstruction:{parts:[{text:SYSTEM}]},contents:[{role:'user',parts:[{text:m}]}]})});
+if(!res.ok)throw new Error('HTTP '+res.status);const j=await res.json();const t=j.candidates[0].content.parts.map(p=>p.text).join('');
+c.innerHTML='<b>Model answer</b><pre>'+esc(t)+'</pre>';c.dir=isAr(t)?'rtl':'ltr';const r=logRow('live',m,'pass',t);buttons(c,r)}
+catch(e){c.innerHTML='<b>Error:</b> '+esc(String(e.message))+'. Check the key, the model name and your connection.'}};
+$('csv').onclick=()=>{const q=s=>'"'+String(s).replace(/"/g,'""')+'"';const t='time,mode,message,stop_check,answer_start,choice\n'+rows.map(r=>[r.time,r.mode,r.msg,r.stop,r.ans,r.choice].map(q).join(',')).join('\n');
+const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([t],{type:'text/csv'}));a.download='hissbot-log.csv';a.click()};
+$('del').onclick=()=>{rows=[];draw();$('chat').innerHTML='';n=0;$('count').textContent='';$('key').value=''};
+</script></body></html>
